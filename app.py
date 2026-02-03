@@ -133,7 +133,7 @@ def transliterate():
                                 do_sample=False,
                                 early_stopping=False,
                                 length_penalty=1.2,
-                                repetition_penalty=1.05,  # Very subtle for character-level model
+                                repetition_penalty=1.0,
                             )
 
                             # Decode chunk
