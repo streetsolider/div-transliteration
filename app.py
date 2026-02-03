@@ -44,12 +44,28 @@ def transliterate():
             paragraphs = text.split('\n\n')
             all_paragraphs_thaana = []
 
-            # Helper function to split text into chunks of max N words
-            def split_into_word_chunks(text, max_words=20):
+            # Helper function to split text into overlapping chunks
+            def split_into_word_chunks(text, max_words=20, overlap=4):
+                """Split text into overlapping chunks for context preservation.
+
+                Args:
+                    text: Input text to chunk
+                    max_words: Maximum words per chunk (default 20)
+                    overlap: Number of words to overlap between chunks (default 4 = 20%)
+
+                Returns:
+                    List of (chunk_text, is_first_chunk) tuples
+                """
                 words = text.split()
                 chunks = []
-                for i in range(0, len(words), max_words):
-                    chunks.append(' '.join(words[i:i + max_words]))
+                stride = max_words - overlap  # 20 - 4 = 16 words stride
+
+                for i in range(0, len(words), stride):
+                    chunk_words = words[i:i + max_words]
+                    chunk_text = ' '.join(chunk_words)
+                    is_first_chunk = (i == 0)
+                    chunks.append((chunk_text, is_first_chunk))
+
                 return chunks
 
             # Process each paragraph
@@ -106,13 +122,15 @@ def transliterate():
                         if word_count > 20:
                             chunks = split_into_word_chunks(phrase_text, max_words=20)
                         else:
-                            chunks = [phrase_text]
+                            # No chunking needed, but maintain tuple format (text, is_first_chunk)
+                            chunks = [(phrase_text, True)]
 
-                        # Process each chunk
+                        # Process each chunk with overlap handling
                         phrase_thaana_parts = []
                         total_chunks = len(chunks)
+                        overlap_words = 4  # 20% overlap for context
 
-                        for chunk_idx, chunk in enumerate(chunks, 1):
+                        for chunk_idx, (chunk_text, is_first_chunk) in enumerate(chunks, 1):
                             if request_id not in active_generations:
                                 yield f"data: {json.dumps({'status': 'Stopped', 'thaana': ' '.join(all_thaana), 'partial': True})}\n\n"
                                 return
@@ -124,8 +142,8 @@ def transliterate():
                                 status_msg = f'Processing sentence {sent_idx}/{total_sentences}...'
                             yield f"data: {json.dumps({'status': status_msg, 'request_id': request_id})}\n\n"
 
-                            # Tokenize and generate
-                            inputs = tokenizer(chunk, return_tensors="pt", truncation=False, padding=False)
+                            # Tokenize and generate with full chunk (including overlap for context)
+                            inputs = tokenizer(chunk_text, return_tensors="pt", truncation=False, padding=False)
                             outputs = model.generate(
                                 **inputs,
                                 max_new_tokens=512,
@@ -138,6 +156,17 @@ def transliterate():
 
                             # Decode chunk
                             chunk_thaana = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+                            # For non-first chunks, trim the overlapping portion from output
+                            # This prevents duplicating the overlap in final output
+                            if not is_first_chunk and total_chunks > 1:
+                                # Estimate: split output and remove first ~20% (overlap portion)
+                                # Use word-based splitting for Thaana
+                                output_words = chunk_thaana.split()
+                                if len(output_words) > overlap_words:
+                                    # Remove overlapping words from start
+                                    chunk_thaana = ' '.join(output_words[overlap_words:])
+
                             phrase_thaana_parts.append(chunk_thaana)
 
                         # Rejoin chunks and add phrase delimiter
