@@ -40,62 +40,134 @@ def transliterate():
             # Store that this generation is active
             active_generations[request_id] = True
 
-            # Split text into sentences while preserving punctuation
-            # This pattern captures sentences WITH their ending punctuation
-            sentence_pattern = r'[^.!?]+[.!?]+|[^.!?]+$'
-            sentences = re.findall(sentence_pattern, text)
-            sentences = [s.strip() for s in sentences if s.strip()]
+            # Split text into paragraphs first (preserve paragraph breaks)
+            paragraphs = text.split('\n\n')
+            all_paragraphs_thaana = []
 
-            # If no sentences found, treat entire text as one sentence
-            if not sentences:
-                sentences = [text]
+            # Helper function to split text into chunks of max N words
+            def split_into_word_chunks(text, max_words=15):
+                words = text.split()
+                chunks = []
+                for i in range(0, len(words), max_words):
+                    chunks.append(' '.join(words[i:i + max_words]))
+                return chunks
 
-            # Process each sentence with beam search
-            all_thaana = []
-            total_sentences = len(sentences)
+            # Process each paragraph
+            for para_idx, paragraph in enumerate(paragraphs):
+                if not paragraph.strip():
+                    # Empty paragraph, preserve the break
+                    all_paragraphs_thaana.append('')
+                    continue
 
-            for idx, sentence in enumerate(sentences, 1):
-                if request_id not in active_generations:
-                    # Generation was stopped
-                    yield f"data: {json.dumps({'status': 'Stopped', 'thaana': ' '.join(all_thaana), 'partial': True})}\n\n"
-                    return
+                # Split paragraph into sentences while preserving punctuation
+                sentence_pattern = r'[^.!?]+[.!?]+|[^.!?]+$'
+                sentences = re.findall(sentence_pattern, paragraph)
+                sentences = [s.strip() for s in sentences if s.strip()]
 
-                # Update status
-                status_msg = f'Processing sentence {idx}/{total_sentences}...'
-                yield f"data: {json.dumps({'status': status_msg, 'request_id': request_id})}\n\n"
+                # If no sentences found, treat entire paragraph as one sentence
+                if not sentences:
+                    sentences = [paragraph]
 
-                # Extract ending punctuation to preserve it
-                ending_punct = ''
-                sentence_text = sentence
-                if sentence and sentence[-1] in '.!?':
-                    ending_punct = sentence[-1]
-                    sentence_text = sentence[:-1].strip()
+                # Process each sentence with phrase-level chunking
+                all_thaana = []
+                total_sentences = len(sentences)
 
-                # Tokenize sentence (without the punctuation)
-                inputs = tokenizer(sentence_text, return_tensors="pt", truncation=False, padding=False)
+                for sent_idx, sentence in enumerate(sentences, 1):
+                    if request_id not in active_generations:
+                        # Generation was stopped
+                        yield f"data: {json.dumps({'status': 'Stopped', 'thaana': ' '.join(all_thaana), 'partial': True})}\n\n"
+                        return
 
-                # Generate with beam search for quality
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=1024,
-                    num_beams=4,
-                    do_sample=False,
-                    early_stopping=False,
-                    length_penalty=1.2,
-                )
+                    # Extract sentence-ending punctuation
+                    ending_punct = ''
+                    sentence_text = sentence
+                    if sentence and sentence[-1] in '.!?':
+                        ending_punct = sentence[-1]
+                        sentence_text = sentence[:-1].strip()
 
-                # Decode the output and add back the punctuation
-                sentence_thaana = tokenizer.decode(outputs[0], skip_special_tokens=True)
-                if ending_punct:
-                    sentence_thaana += ending_punct
-                all_thaana.append(sentence_thaana)
+                    # Split sentence into phrases by commas and semicolons
+                    phrase_pattern = r'[^,;]+[,;]?'
+                    phrases = re.findall(phrase_pattern, sentence_text)
+                    phrases = [p.strip() for p in phrases if p.strip()]
 
-                # Send partial result with completed sentences
-                partial_result = ' '.join(all_thaana)
-                yield f"data: {json.dumps({'status': status_msg, 'thaana': partial_result, 'partial': True})}\n\n"
+                    # Process each phrase
+                    sentence_thaana_parts = []
 
-            # Send final result
-            final_thaana = ' '.join(all_thaana)
+                    for phrase in phrases:
+                        # Extract phrase delimiter (comma or semicolon)
+                        phrase_delimiter = ''
+                        phrase_text = phrase
+                        if phrase and phrase[-1] in ',;':
+                            phrase_delimiter = phrase[-1]
+                            phrase_text = phrase[:-1].strip()
+
+                        # Split phrase into word chunks if too long
+                        word_count = len(phrase_text.split())
+                        if word_count > 15:
+                            chunks = split_into_word_chunks(phrase_text, max_words=15)
+                        else:
+                            chunks = [phrase_text]
+
+                        # Process each chunk
+                        phrase_thaana_parts = []
+                        total_chunks = len(chunks)
+
+                        for chunk_idx, chunk in enumerate(chunks, 1):
+                            if request_id not in active_generations:
+                                yield f"data: {json.dumps({'status': 'Stopped', 'thaana': ' '.join(all_thaana), 'partial': True})}\n\n"
+                                return
+
+                            # Update status
+                            if total_chunks > 1:
+                                status_msg = f'Sentence {sent_idx}/{total_sentences}, chunk {chunk_idx}/{total_chunks}...'
+                            else:
+                                status_msg = f'Processing sentence {sent_idx}/{total_sentences}...'
+                            yield f"data: {json.dumps({'status': status_msg, 'request_id': request_id})}\n\n"
+
+                            # Tokenize and generate
+                            inputs = tokenizer(chunk, return_tensors="pt", truncation=False, padding=False)
+                            outputs = model.generate(
+                                **inputs,
+                                max_new_tokens=512,
+                                num_beams=4,
+                                do_sample=False,
+                                early_stopping=False,
+                                length_penalty=1.2,
+                            )
+
+                            # Decode chunk
+                            chunk_thaana = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                            phrase_thaana_parts.append(chunk_thaana)
+
+                        # Rejoin chunks and add phrase delimiter
+                        phrase_thaana = ' '.join(phrase_thaana_parts)
+                        if phrase_delimiter:
+                            phrase_thaana += phrase_delimiter
+                        sentence_thaana_parts.append(phrase_thaana)
+
+                    # Rejoin all phrases and add sentence-ending punctuation
+                    sentence_thaana = ' '.join(sentence_thaana_parts)
+                    if ending_punct:
+                        sentence_thaana += ending_punct
+
+                    # Replace LTR punctuation with RTL equivalents
+                    sentence_thaana = sentence_thaana.replace(',', '،')  # Arabic comma
+                    sentence_thaana = sentence_thaana.replace(';', '؛')  # Arabic semicolon
+
+                    all_thaana.append(sentence_thaana)
+
+                    # Send partial result with all completed paragraphs + current progress
+                    current_paragraph_progress = ' '.join(all_thaana)
+                    all_progress = all_paragraphs_thaana + [current_paragraph_progress]
+                    partial_result = '\n\n'.join(all_progress)
+                    yield f"data: {json.dumps({'status': f'Sentence {sent_idx}/{total_sentences} complete', 'thaana': partial_result, 'partial': True})}\n\n"
+
+                # After processing all sentences in the paragraph, join them
+                paragraph_thaana = ' '.join(all_thaana)
+                all_paragraphs_thaana.append(paragraph_thaana)
+
+            # Join all paragraphs with double newlines (preserve paragraph breaks)
+            final_thaana = '\n\n'.join(all_paragraphs_thaana)
             yield f"data: {json.dumps({'status': 'Complete!', 'thaana': final_thaana, 'latin': text, 'partial': False})}\n\n"
 
             # Cleanup
