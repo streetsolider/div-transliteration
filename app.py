@@ -200,6 +200,7 @@ def transliterate():
                     # Replace LTR punctuation with RTL equivalents
                     sentence_thaana = sentence_thaana.replace(',', '،')  # Arabic comma
                     sentence_thaana = sentence_thaana.replace(';', '؛')  # Arabic semicolon
+                    sentence_thaana = sentence_thaana.replace('?', '؟')  # Arabic question mark
 
                     all_thaana.append(sentence_thaana)
 
