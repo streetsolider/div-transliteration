@@ -1,0 +1,9 @@
+# Web Framework
+Flask==3.1.2
+
+# Production WSGI Server
+gunicorn==21.2.0
+
+# ML/AI - Model and inference
+transformers==4.57.6
+torch==2.8.0

@@ -1,0 +1,29 @@
+[Unit]
+Description=Dhivehi Transliteration API Service
+After=network.target
+
+[Service]
+Type=notify
+# Change these paths to match your server
+User=YOUR_SERVER_USERNAME
+Group=YOUR_SERVER_USERNAME
+WorkingDirectory=/path/to/div-transliteration
+Environment="PATH=/path/to/your/python/bin"
+
+# Gunicorn command
+ExecStart=/path/to/your/python/bin/gunicorn -c gunicorn.conf.py app:app
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=append:/var/log/dhivehi-transliteration/access.log
+StandardError=append:/var/log/dhivehi-transliteration/error.log
+
+# Security settings
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

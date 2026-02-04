@@ -276,7 +276,10 @@
         <div class="content">
             <div class="io-container">
                 <div class="input-section">
-                    <label for="latinInput">Enter Latin Text:</label>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label for="latinInput">Enter Latin Text:</label>
+                        <span id="wordCount" style="font-size: 14px; color: #666; font-weight: 400;">0 / 500 words</span>
+                    </div>
                     <textarea
                         id="latinInput"
                         class="latin-input"
@@ -336,6 +339,36 @@
         // Store current reader for cancellation
         let currentReader = null;
 
+        // Count words in Latin input
+        const MAX_WORDS = 500;
+
+        function updateWordCount() {
+            const text = latinInput.value.trim();
+            const words = text ? text.split(/\s+/).filter(word => word.length > 0).length : 0;
+            const wordCountEl = document.getElementById('wordCount');
+
+            // Update counter display
+            wordCountEl.textContent = `${words} / ${MAX_WORDS} words`;
+
+            // Change color and disable button if over limit
+            if (words > MAX_WORDS) {
+                wordCountEl.style.color = '#dc3545';
+                wordCountEl.style.fontWeight = '600';
+                translateBtn.disabled = true;
+                showError(`Text exceeds ${MAX_WORDS} word limit. Please reduce to ${MAX_WORDS} words or less.`);
+            } else {
+                wordCountEl.style.color = '#666';
+                wordCountEl.style.fontWeight = '400';
+                if (!loading.classList.contains('active')) {
+                    translateBtn.disabled = false;
+                }
+                errorDiv.classList.remove('active');
+            }
+        }
+
+        // Update word count on input
+        latinInput.addEventListener('input', updateWordCount);
+
         // Allow Enter key to transliterate
         latinInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -349,6 +382,13 @@
 
             if (!text) {
                 showError('Please enter some text to transliterate');
+                return;
+            }
+
+            // Check word limit
+            const words = text.split(/\s+/).filter(word => word.length > 0).length;
+            if (words > MAX_WORDS) {
+                showError(`Text exceeds ${MAX_WORDS} word limit. Please reduce to ${MAX_WORDS} words or less.`);
                 return;
             }
 
@@ -514,9 +554,10 @@
             }, 5000);
         }
 
-        // Focus input on load
+        // Focus input and initialize word count on load
         window.onload = () => {
             latinInput.focus();
+            updateWordCount();
         };
     </script>
 </body>
