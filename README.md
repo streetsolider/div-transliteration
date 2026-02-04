@@ -229,10 +229,6 @@ kill -9 <PID>
 4. Commit with descriptive message
 5. Merge to `development`, then to `master`
 
-## License
-
-[Add your license here]
-
 ## Support
 
 For deployment issues, see [DEPLOYMENT.md](DEPLOYMENT.md)

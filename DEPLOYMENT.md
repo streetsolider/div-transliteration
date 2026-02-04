@@ -9,14 +9,14 @@
 
 ### 1.1 Copy files to server
 ```bash
-# On your Mac, copy project to server
-scp -r div-transliteration/ user@your-server:/home/user/
+# Copy project to server
+scp -r div-transliteration/ user@server:/home/user/
 ```
 
 ### 1.2 Install dependencies
 ```bash
 # SSH into server
-ssh user@your-server
+ssh user@server
 
 # Navigate to project
 cd /home/user/div-transliteration
@@ -32,16 +32,16 @@ pip install -r requirements.txt
 ## Step 2: Configure systemd Service
 
 ### 2.1 Edit the service file
-Update `dhivehi-transliteration.service` with your server paths:
-- User: Your Linux username
+Update `dhivehi-transliteration.service` with server paths:
+- User: Linux username
 - WorkingDirectory: Full path to project
-- Environment PATH: Path to your Python venv/bin
+- Environment PATH: Path to Python venv/bin
 - ExecStart: Full path to gunicorn in venv
 
 ### 2.2 Create log directory
 ```bash
 sudo mkdir -p /var/log/dhivehi-transliteration
-sudo chown YOUR_USERNAME:YOUR_USERNAME /var/log/dhivehi-transliteration
+sudo chown USERNAME:USERNAME /var/log/dhivehi-transliteration
 ```
 
 ### 2.3 Install the service
@@ -69,7 +69,7 @@ sudo journalctl -u dhivehi-transliteration -f
 
 ## Step 4: Access
 - Local: http://localhost:5001
-- Network: http://YOUR_SERVER_IP:5001
+- Network: http://SERVER_IP:5001
 
 ## Firewall (if needed)
 ```bash
