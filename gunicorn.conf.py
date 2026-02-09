@@ -12,9 +12,9 @@ threads = 2  # 2 threads per worker = 8 concurrent requests total
 timeout = 180  # 3 minutes (model inference takes ~30-40s)
 keepalive = 5
 
-# Preload app to load model before forking workers
-# This way model loads once, then workers are forked with model in memory
-preload_app = True
+# Disable preload to avoid CUDA fork issues
+# Each worker lazily loads the model on first request
+preload_app = False
 
 # Logging
 accesslog = "-"  # stdout

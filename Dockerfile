@@ -16,6 +16,11 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download the model during build so it's cached in the image
+RUN python -c "from transformers import AutoTokenizer, AutoModelForSeq2SeqLM; \
+    AutoTokenizer.from_pretrained('Neobe/dhivehi-byt5-latin2thaana-v1'); \
+    AutoModelForSeq2SeqLM.from_pretrained('Neobe/dhivehi-byt5-latin2thaana-v1')"
+
 # Copy application code
 COPY app.py .
 COPY gunicorn.conf.py .

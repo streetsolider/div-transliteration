@@ -7,17 +7,25 @@ import re
 
 app = Flask(__name__)
 
-# Detect GPU and load model
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-if torch.cuda.is_available():
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-
-print("Loading ByT5 model...")
+# Lazy-loaded model (initialized per worker to avoid CUDA fork issues)
 model_name = "Neobe/dhivehi-byt5-latin2thaana-v1"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(device)
-print("Model loaded successfully!")
+device = None
+tokenizer = None
+model = None
+
+def get_model():
+    """Load model on first use (lazy init to avoid CUDA fork issues with Gunicorn)."""
+    global device, tokenizer, model
+    if model is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+        if torch.cuda.is_available():
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print("Loading ByT5 model...")
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(device)
+        print("Model loaded successfully!")
+    return device, tokenizer, model
 
 # Store active generations
 active_generations = {}
@@ -40,6 +48,9 @@ def transliterate():
 
     def generate():
         try:
+            # Ensure model is loaded (lazy init per worker)
+            device, tokenizer, model = get_model()
+
             # Send initial status
             yield f"data: {json.dumps({'status': 'Starting...', 'request_id': request_id, 'progress': 0})}\n\n"
 
