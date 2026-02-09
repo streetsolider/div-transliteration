@@ -2,6 +2,10 @@
 
 Web application for converting Latin script Dhivehi text to Thaana script using the ByT5 machine learning model.
 
+## Screenshot
+
+![Application Interface](screenshot.png)
+
 ## Features
 
 - Real-time transliteration with streaming results
