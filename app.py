@@ -34,6 +34,12 @@ active_generations = {}
 def index():
     return render_template('index.html')
 
+@app.route('/ready')
+def ready():
+    if model is not None:
+        return jsonify({'status': 'ready'}), 200
+    return jsonify({'status': 'loading'}), 503
+
 @app.route('/transliterate', methods=['POST'])
 def transliterate():
     """API endpoint - uses working pipeline method"""
@@ -48,11 +54,9 @@ def transliterate():
 
     def generate():
         try:
-            # Ensure model is loaded (lazy init per worker)
+            # Model is eager-loaded at worker startup (see gunicorn post_worker_init);
+            # this is just a safety fallback if someone runs app.py directly.
             device, tokenizer, model = get_model()
-
-            # Send initial status
-            yield f"data: {json.dumps({'status': 'Starting...', 'request_id': request_id, 'progress': 0})}\n\n"
 
             # Store that this generation is active
             active_generations[request_id] = True
@@ -178,15 +182,16 @@ def transliterate():
 
                             # Tokenize and generate with full chunk (including overlap for context)
                             inputs = tokenizer(chunk_text, return_tensors="pt", truncation=False, padding=False).to(device)
-                            outputs = model.generate(
-                                **inputs,
-                                max_new_tokens=512,
-                                num_beams=4,
-                                do_sample=False,
-                                early_stopping=False,
-                                length_penalty=1.2,
-                                repetition_penalty=1.0,
-                            )
+                            with torch.inference_mode():
+                                outputs = model.generate(
+                                    **inputs,
+                                    max_new_tokens=512,
+                                    num_beams=4,
+                                    do_sample=False,
+                                    early_stopping=False,
+                                    length_penalty=1.2,
+                                    repetition_penalty=1.0,
+                                )
 
                             # Decode chunk
                             chunk_thaana = tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -259,6 +264,12 @@ def stop_generation(request_id):
         del active_generations[request_id]
         return jsonify({'status': 'stopped'})
     return jsonify({'status': 'not_found'}), 404
+
+# Eager-load at import time so Flask dev (`flask run` / `python app.py`) and
+# gunicorn workers (with preload_app=False, import happens post-fork) both
+# have the model ready before serving any request. Idempotent — guarded by
+# the `if model is None` check inside get_model().
+get_model()
 
 if __name__ == '__main__':
     print("\n" + "="*60)

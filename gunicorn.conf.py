@@ -12,8 +12,8 @@ threads = 2  # 2 threads per worker = 8 concurrent requests total
 timeout = 180  # 3 minutes (model inference takes ~30-40s)
 keepalive = 5
 
-# Disable preload to avoid CUDA fork issues
-# Each worker lazily loads the model on first request
+# Disable preload to avoid CUDA fork issues. Each worker imports app.py
+# post-fork, and app.py eager-loads the model at import time.
 preload_app = False
 
 # Logging
