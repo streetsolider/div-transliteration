@@ -102,145 +102,141 @@ def transliterate():
 
                 return chunks
 
-            # Process each paragraph
+            # Process each paragraph — collect all chunks and run ONE batched
+            # generate() call per paragraph. Much faster than per-chunk sequential
+            # inference for multi-chunk inputs, at the cost of losing sentence-level
+            # streaming (user sees progress per paragraph, not per sentence).
+            overlap_words = 4  # must match split_into_word_chunks overlap
+
             for para_idx, paragraph in enumerate(paragraphs):
                 if not paragraph.strip():
-                    # Empty paragraph, preserve the break
                     all_paragraphs_thaana.append('')
                     continue
+
+                if request_id not in active_generations:
+                    yield f"data: {json.dumps({'status': 'Stopped', 'thaana': '\\n\\n'.join(all_paragraphs_thaana), 'partial': True})}\n\n"
+                    return
 
                 # Split paragraph into sentences while preserving punctuation
                 sentence_pattern = r'[^.!?]+[.!?]+|[^.!?]+$'
                 sentences = re.findall(sentence_pattern, paragraph)
                 sentences = [s.strip() for s in sentences if s.strip()]
-
-                # If no sentences found, treat entire paragraph as one sentence
                 if not sentences:
                     sentences = [paragraph]
 
-                # Process each sentence with phrase-level chunking
-                all_thaana = []
-                total_sentences = len(sentences)
+                # Build a plan of (sentences → phrases → chunk indices) and
+                # flatten all chunks into a single list for one batched call.
+                flat_chunks = []       # chunk text fed to tokenizer
+                flat_is_first = []     # parallel: is_first_chunk flag for overlap trimming
+                plan = []              # list of sentence descriptors
 
-                for sent_idx, sentence in enumerate(sentences, 1):
-                    if request_id not in active_generations:
-                        # Generation was stopped
-                        yield f"data: {json.dumps({'status': 'Stopped', 'thaana': ' '.join(all_thaana), 'partial': True})}\n\n"
-                        return
-
-                    # Extract sentence-ending punctuation
+                for sentence in sentences:
                     ending_punct = ''
                     sentence_text = sentence
                     if sentence and sentence[-1] in '.!?':
                         ending_punct = sentence[-1]
                         sentence_text = sentence[:-1].strip()
 
-                    # Split sentence into phrases by commas and semicolons
                     phrase_pattern = r'[^,;]+[,;]?'
                     phrases = re.findall(phrase_pattern, sentence_text)
                     phrases = [p.strip() for p in phrases if p.strip()]
 
-                    # Process each phrase
-                    sentence_thaana_parts = []
-
+                    phrase_plans = []
                     for phrase in phrases:
-                        # Extract phrase delimiter (comma or semicolon)
                         phrase_delimiter = ''
                         phrase_text = phrase
                         if phrase and phrase[-1] in ',;':
                             phrase_delimiter = phrase[-1]
                             phrase_text = phrase[:-1].strip()
 
-                        # Split phrase into word chunks if too long
-                        word_count = len(phrase_text.split())
-                        if word_count > 20:
+                        if len(phrase_text.split()) > 20:
                             chunks = split_into_word_chunks(phrase_text, max_words=20)
                         else:
-                            # No chunking needed, but maintain tuple format (text, is_first_chunk)
                             chunks = [(phrase_text, True)]
 
-                        # Process each chunk with overlap handling
-                        phrase_thaana_parts = []
-                        total_chunks = len(chunks)
-                        overlap_words = 4  # 20% overlap for context
+                        start = len(flat_chunks)
+                        for chunk_text, is_first in chunks:
+                            flat_chunks.append(chunk_text)
+                            flat_is_first.append(is_first)
+                        end = len(flat_chunks)
 
-                        for chunk_idx, (chunk_text, is_first_chunk) in enumerate(chunks, 1):
-                            if request_id not in active_generations:
-                                yield f"data: {json.dumps({'status': 'Stopped', 'thaana': ' '.join(all_thaana), 'partial': True})}\n\n"
-                                return
+                        phrase_plans.append({
+                            'delimiter': phrase_delimiter,
+                            'start': start,
+                            'end': end,
+                            'multi': (end - start) > 1,
+                        })
 
-                            # Update status with progress
-                            if total_chunks > 1:
-                                status_msg = f'Sentence {sent_idx}/{total_sentences}, chunk {chunk_idx}/{total_chunks}...'
-                            else:
-                                status_msg = f'Processing sentence {sent_idx}/{total_sentences}...'
+                    plan.append({'ending_punct': ending_punct, 'phrases': phrase_plans})
 
-                            # Calculate progress percentage
-                            progress = int((completed_sentences / total_sentences_all) * 100) if total_sentences_all > 0 else 0
+                if not flat_chunks:
+                    all_paragraphs_thaana.append('')
+                    continue
 
-                            yield f"data: {json.dumps({'status': status_msg, 'request_id': request_id, 'progress': progress})}\n\n"
+                # Status update before batched inference
+                progress = int((completed_sentences / total_sentences_all) * 100) if total_sentences_all > 0 else 0
+                status_msg = (
+                    f'Processing paragraph {para_idx + 1}/{len(paragraphs)} '
+                    f'({len(flat_chunks)} chunk{"s" if len(flat_chunks) != 1 else ""} batched)...'
+                )
+                yield f"data: {json.dumps({'status': status_msg, 'request_id': request_id, 'progress': progress})}\n\n"
 
-                            # Tokenize and generate with full chunk (including overlap for context)
-                            inputs = tokenizer(chunk_text, return_tensors="pt", truncation=False, padding=False).to(device)
-                            with torch.inference_mode():
-                                outputs = model.generate(
-                                    **inputs,
-                                    max_new_tokens=512,
-                                    num_beams=4,
-                                    do_sample=False,
-                                    early_stopping=False,
-                                    length_penalty=1.2,
-                                    repetition_penalty=1.0,
-                                )
+                # Single batched forward pass for the entire paragraph
+                inputs = tokenizer(
+                    flat_chunks,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=False,
+                ).to(device)
+                with torch.inference_mode():
+                    outputs = model.generate(
+                        **inputs,
+                        max_new_tokens=512,
+                        num_beams=4,
+                        do_sample=False,
+                        early_stopping=False,
+                        length_penalty=1.2,
+                        repetition_penalty=1.0,
+                    )
+                decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
-                            # Decode chunk
-                            chunk_thaana = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-                            # For non-first chunks, trim the overlapping portion from output
-                            # This prevents duplicating the overlap in final output
-                            if not is_first_chunk and total_chunks > 1:
-                                # Estimate: split output and remove first ~20% (overlap portion)
-                                # Use word-based splitting for Thaana
+                # Stitch decoded chunks back into sentences using the plan
+                all_thaana = []
+                for sent_plan in plan:
+                    sentence_thaana_parts = []
+                    for phrase_plan in sent_plan['phrases']:
+                        phrase_chunks = []
+                        for i in range(phrase_plan['start'], phrase_plan['end']):
+                            chunk_thaana = decoded[i]
+                            if not flat_is_first[i] and phrase_plan['multi']:
                                 output_words = chunk_thaana.split()
                                 if len(output_words) > overlap_words:
-                                    # Remove overlapping words from start
                                     chunk_thaana = ' '.join(output_words[overlap_words:])
-
-                            phrase_thaana_parts.append(chunk_thaana)
-
-                        # Rejoin chunks and add phrase delimiter
-                        phrase_thaana = ' '.join(phrase_thaana_parts)
-                        if phrase_delimiter:
-                            phrase_thaana += phrase_delimiter
+                            phrase_chunks.append(chunk_thaana)
+                        phrase_thaana = ' '.join(phrase_chunks)
+                        if phrase_plan['delimiter']:
+                            phrase_thaana += phrase_plan['delimiter']
                         sentence_thaana_parts.append(phrase_thaana)
 
-                    # Rejoin all phrases and add sentence-ending punctuation
                     sentence_thaana = ' '.join(sentence_thaana_parts)
-                    if ending_punct:
-                        sentence_thaana += ending_punct
+                    if sent_plan['ending_punct']:
+                        sentence_thaana += sent_plan['ending_punct']
 
                     # Replace LTR punctuation with RTL equivalents
-                    sentence_thaana = sentence_thaana.replace(',', '،')  # Arabic comma
-                    sentence_thaana = sentence_thaana.replace(';', '؛')  # Arabic semicolon
-                    sentence_thaana = sentence_thaana.replace('?', '؟')  # Arabic question mark
+                    sentence_thaana = sentence_thaana.replace(',', '،')
+                    sentence_thaana = sentence_thaana.replace(';', '؛')
+                    sentence_thaana = sentence_thaana.replace('?', '؟')
 
                     all_thaana.append(sentence_thaana)
-
-                    # Increment completed sentences count
                     completed_sentences += 1
 
-                    # Calculate progress percentage
-                    progress = int((completed_sentences / total_sentences_all) * 100) if total_sentences_all > 0 else 0
-
-                    # Send partial result with all completed paragraphs + current progress
-                    current_paragraph_progress = ' '.join(all_thaana)
-                    all_progress = all_paragraphs_thaana + [current_paragraph_progress]
-                    partial_result = '\n\n'.join(all_progress)
-                    yield f"data: {json.dumps({'status': f'Sentence {sent_idx}/{total_sentences} complete', 'thaana': partial_result, 'partial': True, 'progress': progress})}\n\n"
-
-                # After processing all sentences in the paragraph, join them
                 paragraph_thaana = ' '.join(all_thaana)
                 all_paragraphs_thaana.append(paragraph_thaana)
+
+                # Paragraph-level partial result for streaming UX
+                progress = int((completed_sentences / total_sentences_all) * 100) if total_sentences_all > 0 else 0
+                partial_result = '\n\n'.join(all_paragraphs_thaana)
+                yield f"data: {json.dumps({'status': f'Paragraph {para_idx + 1}/{len(paragraphs)} complete', 'thaana': partial_result, 'partial': True, 'progress': progress})}\n\n"
 
             # Join all paragraphs with double newlines (preserve paragraph breaks)
             final_thaana = '\n\n'.join(all_paragraphs_thaana)
