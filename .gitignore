@@ -65,3 +65,6 @@ coverage/
 
 # Model cache (optional - comment out if you want to cache)
 # ~/.cache/huggingface/
+
+# Gemini CLI
+gemini.md
