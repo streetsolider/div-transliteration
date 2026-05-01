@@ -136,12 +136,49 @@
         }
 
         .thaana-output {
+            background-color: #fcfcfc;
+        }
+
+        /* Applied to any element holding Thaana script (textareas, example pills, etc.) */
+        .is-thaana {
             direction: rtl;
             text-align: right;
             font-family: 'Faruma', sans-serif;
+        }
+        textarea.is-thaana {
             font-size: 1.25rem;
             line-height: 1.8;
-            background-color: #fcfcfc;
+        }
+
+        /* Direction toggle */
+        .direction-toggle {
+            display: inline-flex;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 3px;
+            margin-bottom: 1.5rem;
+        }
+        .dir-btn {
+            padding: 0.4rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            background: transparent;
+            color: var(--text-muted);
+            border: none;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .dir-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+        .toggle-row {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 0.5rem;
         }
 
         .actions {
@@ -167,7 +204,7 @@
                 padding: 1rem;
                 font-size: 1rem;
             }
-            .thaana-output {
+            textarea.is-thaana {
                 font-size: 1.15rem;
             }
             .actions {
@@ -273,6 +310,10 @@
             border-color: var(--primary);
             background: rgba(13, 148, 136, 0.04);
             color: var(--primary);
+        }
+
+        .example-pill.is-thaana {
+            text-align: right;
         }
 
         /* Progress & Loading */
@@ -408,10 +449,16 @@
 
     <main class="main-container">
         <div class="card">
+            <div class="toggle-row">
+                <div class="direction-toggle" id="directionToggle">
+                    <button class="dir-btn active" data-dir="latin2thaana">Latin → Thaana</button>
+                    <button class="dir-btn" data-dir="thaana2latin">Thaana → Latin</button>
+                </div>
+            </div>
             <div class="io-grid">
                 <div class="input-pane">
                     <div class="section-label">
-                        <span>Latin Dhivehi</span>
+                        <span id="inputLabel">Latin Dhivehi</span>
                         <span class="word-count" id="wordCount">0 / 750 words</span>
                     </div>
                     <textarea id="latinInput" placeholder="Type or paste Latin Dhivehi here..."></textarea>
@@ -419,12 +466,12 @@
 
                 <div class="output-pane">
                     <div class="section-label">
-                        <span>Thaana Output</span>
+                        <span id="outputLabel">Thaana Output</span>
                         <button id="copyBtn" class="btn-copy" style="display: none;" onclick="copyOutput()" title="Copy to clipboard">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         </button>
                     </div>
-                    <textarea id="thaanaOutput" class="thaana-output" readonly placeholder="ތާނަ އައުޓްޕުޓް މިތަނުން ފެންނާނެ..."></textarea>
+                    <textarea id="thaanaOutput" class="thaana-output is-thaana" readonly placeholder="ތާނަ އައުޓްޕުޓް މިތަނުން ފެންނާނެ..."></textarea>
                 </div>
             </div>
 
@@ -446,17 +493,7 @@
 
             <div class="examples-section">
                 <h3>Try an example</h3>
-                <div class="examples-grid">
-                    <div class="example-pill" onclick="loadExample('Kihinehtha? Aharennakee Dhivehi bahun liyan daskuraa kujjeh.')">
-                        "Kihinehtha? Aharennakee Dhivehi bahun liyan daskuraa kujjeh."
-                    </div>
-                    <div class="example-pill" onclick="loadExample('Dhivehiraajjeyge ufehdhuntherikan ithurukuran masakaiy kurumakee emmege vaajibekeve.')">
-                        "Dhivehiraajjeyge ufehdhuntherikan ithurukuran masakaiy kurumakee emmege vaajibekeve."
-                    </div>
-                    <div class="example-pill" onclick="loadExample('Maadhanu noon aneh dhuvahu mi buraasfathi dhuvas haassa dhuvahakah hedhumah thiya beyfulhunnaa gulhigen masakaiy kuraanan.')">
-                        "Maadhanu noon aneh dhuvahu mi buraasfathi dhuvas haassa dhuvahakah hedhumah..."
-                    </div>
-                </div>
+                <div class="examples-grid" id="examplesGrid"></div>
             </div>
         </div>
     </main>
@@ -479,9 +516,79 @@
         const copyBtn = document.getElementById('copyBtn');
         const warmupOverlay = document.getElementById('warmupOverlay');
         const errorToast = document.getElementById('errorToast');
+        const directionToggle = document.getElementById('directionToggle');
+        const examplesGrid = document.getElementById('examplesGrid');
 
         const MAX_WORDS = 750;
         let currentReader = null;
+        let direction = 'latin2thaana';
+
+        const DIRECTION_CONFIG = {
+            latin2thaana: {
+                inputLabel: 'Latin Dhivehi',
+                outputLabel: 'Thaana Output',
+                inputPlaceholder: 'Type or paste Latin Dhivehi here...',
+                outputPlaceholder: 'ތާނަ އައުޓްޕުޓް މިތަނުން ފެންނާނެ...',
+                inputIsThaana: false,
+                examples: [
+                    'Kihinehtha? Aharennakee Dhivehi bahun liyan daskuraa kujjeh.',
+                    'Dhivehiraajjeyge ufehdhuntherikan ithurukuran masakaiy kurumakee emmege vaajibekeve.',
+                    'Maadhanu noon aneh dhuvahu mi buraasfathi dhuvas haassa dhuvahakah hedhumah thiya beyfulhunnaa gulhigen masakaiy kuraanan.',
+                ],
+            },
+            thaana2latin: {
+                inputLabel: 'Thaana',
+                outputLabel: 'Latin Output',
+                inputPlaceholder: 'ތާނަ ޓެކްސްޓް މިތަނުގައި ލިޔޭ...',
+                outputPlaceholder: 'Latin output will appear here...',
+                inputIsThaana: true,
+                examples: [
+                    'ކިހިނެއްތަ؟ އަހަރެންނަކީ ދިވެހި ބަހުން ލިޔަން ދަސްކުރާ ކުއްޖެއް.',
+                    'ދިވެހިރާއްޖޭގެ އުފެއްދުންތެރިކަން އިތުރުކުރަން މަސައްކަތް ކުރުމަކީ އެންމެގެ ވާޖިބެކެވެ.',
+                    'މާދަން ނޫން އަނެއް ދުވަހު މި ބުރާސްފަތި ދުވަސް ޚާއްސަ ދުވަހަކަށް ހެދުމަށް ތިޔަ ބޭފުޅުންނާ ގުޅިގެން މަސައްކަތް ކުރާނަން.',
+                ],
+            },
+        };
+
+        function applyDirection() {
+            const cfg = DIRECTION_CONFIG[direction];
+            document.getElementById('inputLabel').textContent = cfg.inputLabel;
+            document.getElementById('outputLabel').textContent = cfg.outputLabel;
+            latinInput.placeholder = cfg.inputPlaceholder;
+            thaanaOutput.placeholder = cfg.outputPlaceholder;
+            latinInput.classList.toggle('is-thaana', cfg.inputIsThaana);
+            thaanaOutput.classList.toggle('is-thaana', !cfg.inputIsThaana);
+
+            latinInput.value = '';
+            thaanaOutput.value = '';
+            copyBtn.style.display = 'none';
+
+            examplesGrid.innerHTML = '';
+            for (const ex of cfg.examples) {
+                const pill = document.createElement('div');
+                pill.className = 'example-pill';
+                if (cfg.inputIsThaana) {
+                    pill.classList.add('is-thaana');
+                    pill.style.fontSize = '1rem';
+                }
+                pill.textContent = ex;
+                pill.onclick = () => loadExample(ex);
+                examplesGrid.appendChild(pill);
+            }
+
+            for (const btn of directionToggle.querySelectorAll('.dir-btn')) {
+                btn.classList.toggle('active', btn.dataset.dir === direction);
+            }
+
+            updateUI();
+        }
+
+        directionToggle.addEventListener('click', (e) => {
+            const btn = e.target.closest('.dir-btn');
+            if (!btn || btn.dataset.dir === direction) return;
+            direction = btn.dataset.dir;
+            applyDirection();
+        });
 
         // --- Core Functions ---
 
@@ -548,7 +655,7 @@
                 const response = await fetch('/transliterate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text })
+                    body: JSON.stringify({ text, direction })
                 });
 
                 const reader = response.body.getReader();
@@ -633,8 +740,8 @@
 
         latinInput.addEventListener('input', updateUI);
         window.addEventListener('load', () => {
+            applyDirection();
             checkReady();
-            updateUI();
         });
     </script>
 </body>

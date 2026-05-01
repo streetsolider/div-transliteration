@@ -7,25 +7,33 @@ import re
 
 app = Flask(__name__)
 
-# Lazy-loaded model (initialized per worker to avoid CUDA fork issues)
-model_name = "Neobe/dhivehi-byt5-latin2thaana-v1"
+# Lazy-loaded models (initialized per worker to avoid CUDA fork issues)
+MODEL_NAMES = {
+    'latin2thaana': "Neobe/dhivehi-byt5-latin2thaana-v1",
+    'thaana2latin': "Neobe/dhivehi-byt5-thaana2latin-v1",
+}
 device = None
-tokenizer = None
-model = None
+models = {}  # direction -> {'tokenizer': ..., 'model': ...}
 
-def get_model():
+def get_model(direction='latin2thaana'):
     """Load model on first use (lazy init to avoid CUDA fork issues with Gunicorn)."""
-    global device, tokenizer, model
-    if model is None:
+    global device
+    if direction not in MODEL_NAMES:
+        raise ValueError(f"Unknown direction: {direction}")
+    if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {device}")
         if torch.cuda.is_available():
             print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print("Loading ByT5 model...")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name).to(device)
-        print("Model loaded successfully!")
-    return device, tokenizer, model
+    if direction not in models:
+        name = MODEL_NAMES[direction]
+        print(f"Loading ByT5 model: {name}")
+        tok = AutoTokenizer.from_pretrained(name)
+        mdl = AutoModelForSeq2SeqLM.from_pretrained(name).to(device)
+        models[direction] = {'tokenizer': tok, 'model': mdl}
+        print(f"Loaded: {name}")
+    entry = models[direction]
+    return device, entry['tokenizer'], entry['model']
 
 # Store active generations
 active_generations = {}
@@ -36,7 +44,7 @@ def index():
 
 @app.route('/ready')
 def ready():
-    if model is not None:
+    if all(d in models for d in MODEL_NAMES):
         return jsonify({'status': 'ready'}), 200
     return jsonify({'status': 'loading'}), 503
 
@@ -45,9 +53,12 @@ def transliterate():
     """API endpoint - uses working pipeline method"""
     data = request.get_json()
     text = data.get('text', '')
+    direction = data.get('direction', 'latin2thaana')
 
     if not text:
         return jsonify({'error': 'No text provided'}), 400
+    if direction not in MODEL_NAMES:
+        return jsonify({'error': f'Invalid direction: {direction}'}), 400
 
     # Generate request ID
     request_id = str(time.time())
@@ -56,7 +67,7 @@ def transliterate():
         try:
             # Model is eager-loaded at worker startup (see gunicorn post_worker_init);
             # this is just a safety fallback if someone runs app.py directly.
-            device, tokenizer, model = get_model()
+            device, tokenizer, model = get_model(direction)
 
             # Store that this generation is active
             active_generations[request_id] = True
@@ -222,10 +233,11 @@ def transliterate():
                     if sent_plan['ending_punct']:
                         sentence_thaana += sent_plan['ending_punct']
 
-                    # Replace LTR punctuation with RTL equivalents
-                    sentence_thaana = sentence_thaana.replace(',', '،')
-                    sentence_thaana = sentence_thaana.replace(';', '؛')
-                    sentence_thaana = sentence_thaana.replace('?', '؟')
+                    # Replace LTR punctuation with RTL equivalents (Thaana output only)
+                    if direction == 'latin2thaana':
+                        sentence_thaana = sentence_thaana.replace(',', '،')
+                        sentence_thaana = sentence_thaana.replace(';', '؛')
+                        sentence_thaana = sentence_thaana.replace('?', '؟')
 
                     all_thaana.append(sentence_thaana)
                     completed_sentences += 1
@@ -261,11 +273,12 @@ def stop_generation(request_id):
         return jsonify({'status': 'stopped'})
     return jsonify({'status': 'not_found'}), 404
 
-# Eager-load at import time so Flask dev (`flask run` / `python app.py`) and
-# gunicorn workers (with preload_app=False, import happens post-fork) both
-# have the model ready before serving any request. Idempotent — guarded by
-# the `if model is None` check inside get_model().
-get_model()
+# Eager-load both directions at import time so Flask dev (`flask run` /
+# `python app.py`) and gunicorn workers (with preload_app=False, import happens
+# post-fork) both have models ready before serving any request. Idempotent —
+# guarded by the `if direction not in models` check inside get_model().
+for _direction in MODEL_NAMES:
+    get_model(_direction)
 
 if __name__ == '__main__':
     print("\n" + "="*60)
