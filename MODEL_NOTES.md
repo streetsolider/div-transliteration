@@ -60,3 +60,5 @@ Both directions use the same `model.generate()` call in `app.py`. Whatever decod
 - Decoder params: `app.py` inside the `generate()` definition, in the `model.generate(...)` call.
 - Chunking pipeline: same function — splits paragraphs → sentences (`[.!?]`) → phrases (`[,;]`) → 20-word windows. Do not change these regexes when retraining.
 - Models: `MODEL_NAMES` dict at the top of `app.py`. Update names there after publishing fine-tuned weights to Hugging Face.
+
+_Last reviewed: 2026-05-02._
