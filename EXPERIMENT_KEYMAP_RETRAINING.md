@@ -191,16 +191,32 @@ End-to-end through the production Flask pipeline (chunking → batched inference
 
 ### 5.4 Inference cost
 
-Measured on the 7-input regression set above with production decoder params (`num_beams=4`, `max_new_tokens=512`).
+Measured on the 7-input regression set with production decoder params (`num_beams=4`, `max_new_tokens=512`).
 
-| Metric | Baseline (Neobe) | New model | Ratio |
+#### CPU vs GPU latency
+
+Same model, same inputs, same decoder params — only the hardware differs. CPU runs in `venv-cpu` (PyTorch CPU wheel), GPU runs in `venv` (CUDA 12.8 wheel) on the RTX 5070 Ti.
+
+| Hardware | Baseline (Neobe) | New model | New-vs-baseline speedup |
 |---|---|---|---|
-| Inference time | 181 ms / input | 60 ms / input | **3.02× faster** |
-| Output bytes | 77 / output | 18.6 / output | **4.15× smaller** |
+| CPU | 431 ms / input | 208 ms / input | **2.07×** |
+| GPU (RTX 5070 Ti) | 166 ms / input | 57 ms / input | **2.92×** |
 
-The 3× decoder speedup matches the theoretical prediction (Thaana is 3 bytes/codepoint UTF-8; Segha keymap is 1 byte/codepoint). The 4.15× byte ratio exceeds 3× because the new model also stops generating the hallucinated repeats that bloated the baseline's output on short inputs.
+Cross-hardware: the new model is **3.65× slower on CPU than on GPU** (208 ms vs 57 ms); baseline is 2.60× slower on CPU (431 ms vs 166 ms).
 
-A full 231-word paragraph end-to-end through the Flask streaming pipeline completes in **4.87 s** total, with no silent gap longer than 2.08 s.
+The keymap retraining helps on both backends, but the multiplier differs. On GPU each decoder step is so cheap that cutting step count translates almost linearly to wall-clock (close to the theoretical 3×). On CPU, fixed per-step Python and layer-dispatch overhead doesn't scale with step count, so the 3× step reduction yields only ~2× wall-clock improvement.
+
+#### Output byte count (hardware-independent)
+
+| | Baseline | New model | Ratio |
+|---|---|---|---|
+| Average output bytes | 77.1 | 18.6 | **4.15×** |
+
+Theoretical reduction is 3× (Thaana 3-bytes/codepoint UTF-8 → keymap 1-byte/codepoint). The measured 4.15× exceeds that because the new model also stops generating the hallucinated repeats that bloated baseline output on short inputs.
+
+#### End-to-end streaming latency (Flask pipeline, GPU)
+
+A 231-word paragraph through the production pipeline (chunking → batched inference → `keymap_to_thaana` → RTL punctuation) completes in **4.87 s** total over 11 SSE events, no silent gap longer than 2.08 s.
 
 ## 6. Discussion
 
