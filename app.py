@@ -1,15 +1,23 @@
 from flask import Flask, render_template, request, jsonify, Response
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from pathlib import Path
 import torch
 import time
 import json
 import re
 
+from keymap import keymap_to_thaana
+
 app = Flask(__name__)
+
+# latin2thaana: local fine-tune that emits Segha-phonetic ASCII keymap; we
+# convert keymap -> Thaana via keymap_to_thaana after decode (~3x decoder
+# speedup vs. emitting Thaana UTF-8 directly). See EXPERIMENT_KEYMAP_RETRAINING.md.
+_LATIN2KEYMAP_DIR = str(Path(__file__).resolve().parent / "train" / "checkpoints" / "byt5-latin2keymap")
 
 # Lazy-loaded models (initialized per worker to avoid CUDA fork issues)
 MODEL_NAMES = {
-    'latin2thaana': "Neobe/dhivehi-byt5-latin2thaana-v1",
+    'latin2thaana': _LATIN2KEYMAP_DIR,
     'thaana2latin': "Neobe/dhivehi-byt5-thaana2latin-v1",
 }
 device = None
@@ -206,10 +214,14 @@ def transliterate():
                         num_beams=4,
                         do_sample=False,
                         early_stopping=False,
-                        length_penalty=1.2,
+                        length_penalty=1.0,
                         repetition_penalty=1.0,
                     )
                 decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+                # latin2thaana model now emits Segha-phonetic keymap; convert
+                # to Thaana before downstream stitching.
+                if direction == 'latin2thaana':
+                    decoded = [keymap_to_thaana(s) for s in decoded]
 
                 # Stitch decoded chunks back into sentences using the plan
                 all_thaana = []
