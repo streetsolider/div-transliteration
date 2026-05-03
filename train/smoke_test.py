@@ -25,26 +25,30 @@ SAMPLES = [
 
 
 def main():
-    print(f"CUDA available: {torch.cuda.is_available()}")
-    print(f"Device: {torch.cuda.get_device_name(0)}")
-    print(f"VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    if device.type == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(f"VRAM total: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
     print(f"\nLoading {CHECKPOINT} ...")
     t0 = time.perf_counter()
     tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
-    model = AutoModelForSeq2SeqLM.from_pretrained(CHECKPOINT).to("cuda")
+    model = AutoModelForSeq2SeqLM.from_pretrained(CHECKPOINT).to(device)
     model.eval()
     load_time = time.perf_counter() - t0
     print(f"Loaded in {load_time:.1f}s")
-    print(f"VRAM after load: {torch.cuda.memory_allocated() / 1e9:.2f} GB allocated")
+    if device.type == "cuda":
+        print(f"VRAM after load: {torch.cuda.memory_allocated() / 1e9:.2f} GB allocated")
 
     print(f"\n=== Inference (matching app.py:202-211 params) ===")
-    inputs = tokenizer(SAMPLES, return_tensors="pt", padding=True, truncation=False).to("cuda")
+    inputs = tokenizer(SAMPLES, return_tensors="pt", padding=True, truncation=False).to(device)
 
     # Warmup
     with torch.inference_mode():
         _ = model.generate(**inputs, max_new_tokens=64, num_beams=4, do_sample=False)
-    torch.cuda.synchronize()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
 
     # Timed run
     t0 = time.perf_counter()
@@ -58,12 +62,14 @@ def main():
             length_penalty=1.2,
             repetition_penalty=1.0,
         )
-    torch.cuda.synchronize()
+    if device.type == "cuda":
+        torch.cuda.synchronize()
     elapsed = time.perf_counter() - t0
     decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
     print(f"Batch of {len(SAMPLES)} inputs decoded in {elapsed*1000:.0f}ms ({elapsed*1000/len(SAMPLES):.0f}ms/sample)")
-    print(f"VRAM peak during inference: {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
+    if device.type == "cuda":
+        print(f"VRAM peak during inference: {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
     print()
     for latin, thaana in zip(SAMPLES, decoded):
         print(f"  in:  {latin!r}")
