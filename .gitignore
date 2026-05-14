@@ -74,3 +74,4 @@ coverage/
 
 # Gemini CLI
 gemini.md
+.claude/scheduled_tasks.lock
