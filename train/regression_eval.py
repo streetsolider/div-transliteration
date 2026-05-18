@@ -17,7 +17,7 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 from keymap import keymap_to_thaana
 
-NEW_CHECKPOINT = str(Path(__file__).resolve().parent / "checkpoints" / "byt5-latin2keymap")
+NEW_CHECKPOINT = "str33t/dhivehi-byt5-latin2thaana-keymap-v1"
 BASELINE_CHECKPOINT = "Neobe/dhivehi-byt5-latin2thaana-v1"
 
 # (latin_input, expected_thaana_or_None)

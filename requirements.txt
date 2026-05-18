@@ -7,3 +7,6 @@ gunicorn==21.2.0
 # ML/AI - Model and inference
 transformers==4.57.6
 torch==2.8.0
+
+# Fast Xet-backed downloads from HuggingFace Hub
+hf_xet==1.5.0

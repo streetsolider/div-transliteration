@@ -58,9 +58,6 @@ logs/
 train/checkpoints/
 train/data/
 
-# Docker
-.dockerignore
-
 # Environment variables
 .env
 .env.local

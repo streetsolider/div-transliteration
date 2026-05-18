@@ -103,6 +103,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            min-height: 36px;
             margin-bottom: 0.75rem;
         }
 
@@ -531,9 +532,9 @@
                 outputPlaceholder: 'ތާނަ އައުޓްޕުޓް މިތަނުން ފެންނާނެ...',
                 inputIsThaana: false,
                 examples: [
-                    'Kihinehtha? Aharennakee Dhivehi bahun liyan dhaskuraa kujjeh.',
-                    'Dhivehiraajjeyge ufehdhuntherikan ithurukuran masakaiy kurumakee emmege vaajibekeve.',
-                    'Maadhanu noon aneh dhuvahu mi buraasfathi dhuvas haassa dhuvahakah hedhumah thiya beyfulhunnaa gulhigen masakaiy kuraanan.',
+                    'dhivehi bahakee aharemenge maadharee baheve.',
+                    'Dhivehiraajjeyge ufehdhuntherikan ithurukuran masakaiy kurumakee emmenge mahchah oiy vaajibekeve.',
+                    'Hukuru dhuvahakee aharemen enmen villingiyyah picnic gos majaa kuraa dhuvahah vumun aharemen e dhuvahu duty ah naara ulheynee kulhe hadhai moodhah eri majaa kaan.',
                 ],
             },
             thaana2latin: {
@@ -543,9 +544,9 @@
                 outputPlaceholder: 'Latin output will appear here...',
                 inputIsThaana: true,
                 examples: [
-                    'ކިހިނެއްތަ؟ އަހަރެންނަކީ ދިވެހި ބަހުން ލިޔަން ދަސްކުރާ ކުއްޖެއް.',
-                    'ދިވެހިރާއްޖޭގެ އުފެއްދުންތެރިކަން އިތުރުކުރަން މަސައްކަތް ކުރުމަކީ އެންމެގެ ވާޖިބެކެވެ.',
-                    'މާދަން ނޫން އަނެއް ދުވަހު މި ބުރާސްފަތި ދުވަސް ޚާއްސަ ދުވަހަކަށް ހެދުމަށް ތިޔަ ބޭފުޅުންނާ ގުޅިގެން މަސައްކަތް ކުރާނަން.',
+                    'ދިވެހި ބަހަކީ އަހަރެމެންގެ މާދަރީ ބަހެވެ.',
+                    'ދިވެހިރާއްޖޭގެ އުފެއްދުންތެރިކަން އިތުރުކުރަން މަސައްކަތްކުރުމަކީ އެންމެންގެ މައްޗަށް އޮތް ވާޖިބެކެވެ.',
+                    'ހުކުރު ދުވަހަކީ އަހަރެމެން އެންމެން ވިލިނގިއްޔަށް ޕިކްނިކް ގޮސް މަޖާކުރާ ދުވަހަށްވުމުން އަހަރެމެން އެ ދުވަހު ޑިއުޓީއަށް ނާރަ އުޅޭނީ ކުޅެ ހަދައި މޫދަށް އެރި މަޖާކާން.',
                 ],
             },
         };
@@ -649,7 +650,7 @@
             stopBtn.style.display = 'inline-flex';
             copyBtn.style.display = 'none';
             progressBar.style.width = '0%';
-            statusText.textContent = 'Starting engine...';
+            statusText.textContent = '0%';
 
             try {
                 const response = await fetch('/transliterate', {
@@ -691,7 +692,7 @@
 
                             if (data.partial === false) {
                                 progressBar.style.width = '100%';
-                                statusText.textContent = 'Complete!';
+                                statusText.textContent = '100%';
                                 setTimeout(cleanup, 500);
                             }
                         }

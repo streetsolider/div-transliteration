@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request, jsonify, Response
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-from pathlib import Path
 import torch
 import time
 import json
@@ -10,14 +9,12 @@ from keymap import keymap_to_thaana
 
 app = Flask(__name__)
 
-# latin2thaana: local fine-tune that emits Segha-phonetic ASCII keymap; we
-# convert keymap -> Thaana via keymap_to_thaana after decode (~3x decoder
-# speedup vs. emitting Thaana UTF-8 directly). See EXPERIMENT_KEYMAP_RETRAINING.md.
-_LATIN2KEYMAP_DIR = str(Path(__file__).resolve().parent / "train" / "checkpoints" / "byt5-latin2keymap")
-
+# latin2thaana: fine-tune that emits Segha-phonetic ASCII keymap; we convert
+# keymap -> Thaana via keymap_to_thaana after decode (~3x decoder speedup vs.
+# emitting Thaana UTF-8 directly). See README.md.
 # Lazy-loaded models (initialized per worker to avoid CUDA fork issues)
 MODEL_NAMES = {
-    'latin2thaana': _LATIN2KEYMAP_DIR,
+    'latin2thaana': "str33t/dhivehi-byt5-latin2thaana-keymap-v1",
     'thaana2latin': "Neobe/dhivehi-byt5-thaana2latin-v1",
 }
 device = None
@@ -194,11 +191,7 @@ def transliterate():
 
                 # Status update before batched inference
                 progress = int((completed_sentences / total_sentences_all) * 100) if total_sentences_all > 0 else 0
-                status_msg = (
-                    f'Processing paragraph {para_idx + 1}/{len(paragraphs)} '
-                    f'({len(flat_chunks)} chunk{"s" if len(flat_chunks) != 1 else ""} batched)...'
-                )
-                yield f"data: {json.dumps({'status': status_msg, 'request_id': request_id, 'progress': progress})}\n\n"
+                yield f"data: {json.dumps({'status': f'{progress}%', 'request_id': request_id, 'progress': progress})}\n\n"
 
                 # Single batched forward pass for the entire paragraph
                 inputs = tokenizer(
@@ -260,11 +253,11 @@ def transliterate():
                 # Paragraph-level partial result for streaming UX
                 progress = int((completed_sentences / total_sentences_all) * 100) if total_sentences_all > 0 else 0
                 partial_result = '\n\n'.join(all_paragraphs_thaana)
-                yield f"data: {json.dumps({'status': f'Paragraph {para_idx + 1}/{len(paragraphs)} complete', 'thaana': partial_result, 'partial': True, 'progress': progress})}\n\n"
+                yield f"data: {json.dumps({'status': f'{progress}%', 'thaana': partial_result, 'partial': True, 'progress': progress})}\n\n"
 
             # Join all paragraphs with double newlines (preserve paragraph breaks)
             final_thaana = '\n\n'.join(all_paragraphs_thaana)
-            yield f"data: {json.dumps({'status': 'Complete!', 'thaana': final_thaana, 'latin': text, 'partial': False, 'progress': 100})}\n\n"
+            yield f"data: {json.dumps({'status': '100%', 'thaana': final_thaana, 'latin': text, 'partial': False, 'progress': 100})}\n\n"
 
             # Cleanup
             if request_id in active_generations:
