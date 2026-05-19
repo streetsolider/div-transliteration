@@ -138,18 +138,17 @@ server {
 
 ## Performance
 
-Measured on a 7-input regression set with production decoder params (`num_beams=4`, `max_new_tokens=512`).
+Decode cost — stock `Neobe/dhivehi-byt5-latin2thaana-v1` vs. this fine-tune. Measured on a 7-input regression set with production decoder params (`num_beams=4`, `max_new_tokens=512`). For a byte-level model, one output byte = one decoder step, so the byte-count row is also the decoder-step count.
 
-| Hardware | Baseline (Neobe) | This model | Speedup |
+| Per request (avg) | Stock | This fine-tune | Δ |
 |---|---|---|---|
-| CPU | 431 ms / input | 208 ms / input | **2.07×** |
-| GPU (RTX 5070 Ti) | 166 ms / input | 57 ms / input | **2.92×** |
+| Decoder steps (= output bytes) | 77.1 | 18.6 | **−58.5 (−76%, 4.15×)** |
+| GPU latency (RTX 5070 Ti) | 166 ms | 57 ms | **−109 ms (−66%, 2.92×)** |
+| CPU latency | 431 ms | 208 ms | **−223 ms (−52%, 2.07×)** |
 
-| | Baseline | This model | Ratio |
-|---|---|---|---|
-| Average output bytes per request | 77.1 | 18.6 | **4.15×** |
+The decoder-step reduction exceeds the theoretical 3× (Thaana 3-byte UTF-8 → 1-byte keymap) because the fine-tune also stops the short-input hallucination loops that bloated stock output. GPU wall-clock tracks the step reduction nearly linearly; CPU wall-clock lags because fixed per-step Python overhead doesn't scale with step count.
 
-A 231-word paragraph completes end-to-end through the production pipeline (chunking → batched inference → keymap-to-Thaana decode → RTL punctuation) in **4.87 s** on GPU.
+End-to-end: a 231-word paragraph completes through the production pipeline (chunking → batched inference → keymap-to-Thaana decode → RTL punctuation) in **4.87 s** on GPU.
 
 ## Troubleshooting
 
