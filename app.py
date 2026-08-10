@@ -130,7 +130,10 @@ def transliterate():
                     continue
 
                 if request_id not in active_generations:
-                    yield f"data: {json.dumps({'status': 'Stopped', 'thaana': '\\n\\n'.join(all_paragraphs_thaana), 'partial': True})}\n\n"
+                    # Joined outside the f-string: a backslash inside an f-string
+                    # expression is a SyntaxError before Python 3.12 (PEP 701).
+                    stopped_thaana = '\n\n'.join(all_paragraphs_thaana)
+                    yield f"data: {json.dumps({'status': 'Stopped', 'thaana': stopped_thaana, 'partial': True})}\n\n"
                     return
 
                 # Split paragraph into sentences while preserving punctuation

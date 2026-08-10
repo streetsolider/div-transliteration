@@ -29,9 +29,14 @@ ARG TORCH_VARIANT=cpu
 # Copy requirements first (Docker layer caching)
 COPY --chown=user requirements.txt .
 
-# Install torch from the variant-specific index first; the torch==2.8.0 pin in
-# requirements.txt is then already satisfied and is not re-downloaded.
-RUN pip install --no-cache-dir torch==2.8.0 \
+# pip must be upgraded first: the 23.x bundled in python:3.9-slim rejects every
+# wheel on the PyTorch index whose filename uses underscores (typing_extensions)
+# as an "inconsistent Name", which makes resolution fail outright.
+#
+# Then install torch from the variant-specific index; the torch==2.8.0 pin in
+# requirements.txt is satisfied by 2.8.0+cpu and is not re-downloaded.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir torch==2.8.0 \
         --index-url https://download.pytorch.org/whl/${TORCH_VARIANT} \
     && pip install --no-cache-dir -r requirements.txt
 
