@@ -1,14 +1,19 @@
 # Gunicorn Configuration for Dhivehi Transliteration
 import multiprocessing
+import os
 
 # Server socket
-bind = "0.0.0.0:5001"
+# PORT lets the host pick the port (HF Spaces, Cloud Run, ...); default 5001.
+bind = f"0.0.0.0:{os.environ.get('PORT', '5001')}"
 backlog = 2048
 
 # Worker processes
-workers = 4  # For 50 users, 4 workers = ~12 users per worker
+# Each worker eager-loads both models (~2 GB RAM), so worker count is bounded by
+# RAM, not cores. Override WEB_CONCURRENCY on small hosts — HF Spaces CPU Basic
+# (2 vCPU) should run WEB_CONCURRENCY=1, GUNICORN_THREADS=4.
+workers = int(os.environ.get("WEB_CONCURRENCY", 4))  # 4 workers = ~12 of 50 users each
 worker_class = "gthread"  # Threaded workers for better concurrency
-threads = 2  # 2 threads per worker = 8 concurrent requests total
+threads = int(os.environ.get("GUNICORN_THREADS", 2))  # 2 threads/worker = 8 concurrent
 timeout = 180  # 3 minutes (model inference takes ~30-40s)
 keepalive = 5
 

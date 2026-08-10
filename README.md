@@ -1,3 +1,15 @@
+---
+title: Dhivehi Transliteration
+emoji: 🇲🇻
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 5001
+pinned: false
+license: mit
+short_description: Latin ↔ Thaana Dhivehi transliteration on a ByT5 fine-tune
+---
+
 # Dhivehi Latin → Thaana Transliteration
 
 Web app that converts Latin-script Dhivehi text into Thaana. Built on a ByT5 fine-tune that emits a 1-byte/char ASCII phonetic keymap instead of 3-byte UTF-8 Thaana — a deterministic post-processor reconstructs Thaana for display, giving ~3× decoder speedup with no user-visible difference.

@@ -2,7 +2,11 @@ version: '3.8'
 
 services:
   transliteration:
-    build: .
+    build:
+      context: .
+      args:
+        # Dockerfile defaults to the CPU torch wheel; GPU needs the CUDA 12.8 build.
+        TORCH_VARIANT: cu128
     container_name: dhivehi-transliteration-gpu
     ports:
       - "5001:5001"
