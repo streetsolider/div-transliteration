@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, Response
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
+import os
 import time
 import json
 import re
@@ -39,6 +40,67 @@ def get_model(direction='latin2thaana'):
         print(f"Loaded: {name}")
     entry = models[direction]
     return device, entry['tokenizer'], entry['model']
+
+# 10-word chunks with no overlap, chosen from measurement rather than taste.
+#
+# At 20 words the model silently drops content — on a real news paragraph it
+# rendered "thulhadhoo dhaairage MP Abdul Hannan sponsor koh" as just
+# "ތުޅަދޫ ދާއިރާގެ ސްޕޮންސަރުކޮށް", losing the member's name entirely (20 words in,
+# 15 out). That matches the long-input degradation recorded in MODEL_NOTES.md.
+#
+# The 4-word overlap was meant to protect chunk boundaries, but it cannot be
+# undone reliably: the model does not preserve word counts, and it transliterates
+# the same overlapped words differently in each chunk (މަޖިލީހު vs މަޖިލިސް). The
+# old fixed trim — drop exactly `overlap` output words from every non-first chunk
+# — therefore deleted real content whenever the overlap region compressed, which
+# is how words went missing mid-paragraph. At 10 words the model stops dropping
+# content, so the boundary protection is no longer needed and the whole class of
+# stitching error goes away.
+#
+# Kept at module scope (not nested in the SSE generator) so it is testable —
+# see tests/test_chunking.py.
+CHUNK_WORDS = 10
+OVERLAP_WORDS = 0
+
+
+def split_into_word_chunks(text, max_words=CHUNK_WORDS, overlap=OVERLAP_WORDS):
+    """Split a long phrase into chunks the model handles without dropping words.
+
+    With OVERLAP_WORDS at 0 these are contiguous, so stitching is a plain
+    concatenation. The overlap parameter is kept because the stride logic still
+    reads it, and the guard below still matters if it is ever raised again:
+    without it the stride could emit a final chunk wholly contained in the
+    previous one (35 words at stride 16 gave a 3-word chunk covering words
+    32-34, already inside the 16-34 chunk), which was then too short to trim and
+    got duplicated in the output.
+
+    Returns a list of (chunk_text, is_first_chunk) tuples.
+    """
+    words = text.split()
+    stride = max_words - overlap
+    chunks = []
+    for i in range(0, len(words), stride):
+        chunks.append((' '.join(words[i:i + max_words]), i == 0))
+        if i + max_words >= len(words):
+            break
+    return chunks
+
+
+def drop_repeated_prefix(prev, cur, max_overlap=OVERLAP_WORDS):
+    """Remove the part of `cur` that repeats the tail of `prev`.
+
+    A no-op while OVERLAP_WORDS is 0. If the overlap is ever raised again, this
+    finds the longest *actual* repeat (up to max_overlap words) and drops exactly
+    that, instead of assuming N input words came back as N output words. If
+    nothing matches it drops nothing: a duplicated word is visible and harmless,
+    a deleted one is silent.
+    """
+    prev_words, cur_words = prev.split(), cur.split()
+    for k in range(min(max_overlap, len(prev_words), len(cur_words)), 0, -1):
+        if prev_words[-k:] == cur_words[:k]:
+            return ' '.join(cur_words[k:])
+    return cur
+
 
 # Store active generations
 active_generations = {}
@@ -94,36 +156,12 @@ def transliterate():
 
             completed_sentences = 0
 
-            # Helper function to split text into overlapping chunks
-            def split_into_word_chunks(text, max_words=20, overlap=4):
-                """Split text into overlapping chunks for context preservation.
-
-                Args:
-                    text: Input text to chunk
-                    max_words: Maximum words per chunk (default 20)
-                    overlap: Number of words to overlap between chunks (default 4 = 20%)
-
-                Returns:
-                    List of (chunk_text, is_first_chunk) tuples
-                """
-                words = text.split()
-                chunks = []
-                stride = max_words - overlap  # 20 - 4 = 16 words stride
-
-                for i in range(0, len(words), stride):
-                    chunk_words = words[i:i + max_words]
-                    chunk_text = ' '.join(chunk_words)
-                    is_first_chunk = (i == 0)
-                    chunks.append((chunk_text, is_first_chunk))
-
-                return chunks
-
             # Process each paragraph — collect all chunks and run ONE batched
             # generate() call per paragraph. Much faster than per-chunk sequential
             # inference for multi-chunk inputs, at the cost of losing sentence-level
             # streaming (user sees progress per paragraph, not per sentence).
-            overlap_words = 4  # must match split_into_word_chunks overlap
-
+            # Batching stays per-paragraph so the SSE stream can emit a partial
+            # result as each paragraph finishes.
             for para_idx, paragraph in enumerate(paragraphs):
                 if not paragraph.strip():
                     all_paragraphs_thaana.append('')
@@ -168,8 +206,8 @@ def transliterate():
                             phrase_delimiter = phrase[-1]
                             phrase_text = phrase[:-1].strip()
 
-                        if len(phrase_text.split()) > 20:
-                            chunks = split_into_word_chunks(phrase_text, max_words=20)
+                        if len(phrase_text.split()) > CHUNK_WORDS:
+                            chunks = split_into_word_chunks(phrase_text)
                         else:
                             chunks = [(phrase_text, True)]
 
@@ -227,10 +265,12 @@ def transliterate():
                         phrase_chunks = []
                         for i in range(phrase_plan['start'], phrase_plan['end']):
                             chunk_thaana = decoded[i]
-                            if not flat_is_first[i] and phrase_plan['multi']:
-                                output_words = chunk_thaana.split()
-                                if len(output_words) > overlap_words:
-                                    chunk_thaana = ' '.join(output_words[overlap_words:])
+                            # Non-first chunks would repeat the previous chunk's
+                            # tail if OVERLAP_WORDS were raised; a no-op at 0.
+                            if not flat_is_first[i] and phrase_plan['multi'] and phrase_chunks:
+                                chunk_thaana = drop_repeated_prefix(
+                                    phrase_chunks[-1], chunk_thaana
+                                )
                             phrase_chunks.append(chunk_thaana)
                         phrase_thaana = ' '.join(phrase_chunks)
                         if phrase_plan['delimiter']:
@@ -285,8 +325,12 @@ def stop_generation(request_id):
 # `python app.py`) and gunicorn workers (with preload_app=False, import happens
 # post-fork) both have models ready before serving any request. Idempotent —
 # guarded by the `if direction not in models` check inside get_model().
-for _direction in MODEL_NAMES:
-    get_model(_direction)
+#
+# SKIP_MODEL_PRELOAD lets tests import the module for its pure text-shaping
+# helpers without pulling 2.3 GB of weights. Never set it when serving.
+if not os.environ.get('SKIP_MODEL_PRELOAD'):
+    for _direction in MODEL_NAMES:
+        get_model(_direction)
 
 if __name__ == '__main__':
     print("\n" + "="*60)

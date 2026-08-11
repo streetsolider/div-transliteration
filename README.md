@@ -21,7 +21,7 @@ Web app that converts Latin-script Dhivehi text into Thaana. Built on a ByT5 fin
 - Real-time transliteration with streaming results (SSE)
 - Both directions: Latin → Thaana and Thaana → Latin
 - Up to 750 words per request
-- Smart text chunking with 4-word overlap for context preservation
+- Text chunked into contiguous 10-word windows (see `split_into_word_chunks`)
 - RTL punctuation (`،`, `؛`, `؟`)
 
 ## Quick start
@@ -398,6 +398,8 @@ The encoder of `Neobe/dhivehi-byt5-latin2thaana-v1` already encoded Latin Dhiveh
 ### 4.4 Long-input training was deferred — and that's OK
 
 The plan called for length-diverse augmentation including ~4,500 long concatenated examples. We filtered those out for the first run because they 8×'d step time without obvious necessity given the production chunking pipeline (which never feeds inputs longer than ~20 words to the model). Eval and regression results show no degradation on the inputs the production pipeline actually generates. The long-concat examples remain on disk; we can run a focused round-2 if production behavior ever demands it.
+
+**Update:** production later contradicted this. At 20 words the model silently dropped content — a real news paragraph lost an MP's name mid-sentence — so the window was cut to 10 words (contiguous, no overlap). That is a workaround, not a fix: the deferred long-input training is exactly what would raise the ceiling back up. The trade was still the right call for round 1, but the bill came due in the serving pipeline rather than in training time.
 
 This is a useful practical lesson: not every theoretical improvement is worth its compute cost. The decision to defer was bounded (we kept the data) and reversible (filter is one config line in `finetune.py`).
 
