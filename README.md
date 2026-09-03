@@ -148,6 +148,13 @@ server {
 }
 ```
 
+Serving under a path prefix (e.g. `location /translit/`) works too: the page
+builds its URLs with `url_for`, and `ProxyFix` in `app.py` picks the prefix up
+from `X-Forwarded-Prefix` (add `proxy_set_header X-Forwarded-Prefix /translit;`
+under nginx; Traefik's `StripPrefix` middleware sends it automatically). A proxy
+that sends nothing can set `SCRIPT_NAME=/translit` in the container environment
+instead — gunicorn passes it through.
+
 ## Performance
 
 Decode cost — stock `Neobe/dhivehi-byt5-latin2thaana-v1` vs. this fine-tune. Measured on a 7-input regression set with production decoder params (`num_beams=4`, `max_new_tokens=512`). For a byte-level model, one output byte = one decoder step, so the byte-count row is also the decoder-step count.
@@ -165,6 +172,8 @@ End-to-end: a 231-word paragraph completes through the production pipeline (chun
 ## Troubleshooting
 
 - **Model won't load** — ensure ≥ 2 GB RAM per worker; lower `workers` in `gunicorn.conf.py`.
+- **"Loading AI model" overlay never clears on the server, works locally** — the browser's `/ready` poll (and the fonts) are 404ing behind the proxy. Check the Network tab: if the app is mounted under a prefix, forward it as `X-Forwarded-Prefix` (see Nginx section).
+- **Swarm keeps restarting the task, logs show the models loading over and over** — a failing healthcheck. `python:3.9-slim` has no `curl`; the compose files use a Python `urllib` probe for that reason. Confirm with `docker service ps <service>`.
 - **Slow on CPU** — use GPU (3–5× faster), or lower `num_beams` in `app.py`.
 - **GPU not detected** — check `nvidia-smi`; container logs should show `Using device: cuda`. For Docker GPU you need `nvidia-docker` installed.
 - **Port in use** — `lsof -i :5001` then `kill -9 <PID>`.

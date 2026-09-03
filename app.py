@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, Response
+from werkzeug.middleware.proxy_fix import ProxyFix
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
 import os
@@ -9,6 +10,14 @@ import re
 from keymap import keymap_to_thaana
 
 app = Flask(__name__)
+# The page builds every URL it fetches (/ready, /transliterate, the fonts) with
+# url_for, so it must know the path the proxy mounts us under. ProxyFix reads
+# X-Forwarded-Prefix (Traefik's default, nginx via proxy_set_header) into
+# SCRIPT_NAME; a proxy that sends nothing can set the SCRIPT_NAME env var
+# instead, which gunicorn passes through. Without this, a deployment under
+# /anything/ gets 404s for the fonts and a ready poll that never returns 200,
+# so the "Loading AI model" overlay never clears.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # latin2thaana: fine-tune that emits Segha-phonetic ASCII keymap; we convert
 # keymap -> Thaana via keymap_to_thaana after decode (~3x decoder speedup vs.
